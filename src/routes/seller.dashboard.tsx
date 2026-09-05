@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Pencil,
   Settings,
+  Share2,
   Store,
   Trash2,
   Users,
@@ -24,6 +25,7 @@ import { SiteShell } from "@/components/site/SiteShell";
 import { PhotoPicker } from "@/components/site/PhotoPicker";
 import { ProductImage } from "@/components/site/ProductImage";
 import { SellerAvatar } from "@/components/site/SellerAvatar";
+import { ShareDialog } from "@/components/site/ShareDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +63,13 @@ import {
   setSellerImage,
   updateProduct,
 } from "@/lib/api";
+import {
+  onEngagementChange,
+  productCounters,
+  sellerCounters,
+  type Counters,
+} from "@/lib/engagement";
+import { productUrl, storeUrl } from "@/lib/share";
 import { clearSession, getSession } from "@/lib/session";
 import { signOutSeller } from "@/lib/seller-auth";
 import { getAuthorizedSellerId } from "@/lib/seller-auth-server";
@@ -105,6 +114,23 @@ const VIEWS_7D = [
   { day: "Sun", views: 196 },
 ];
 
+/** Live engagement counters for this seller (and its products). */
+function useSellerEngagement(sellerId: string | null | undefined) {
+  const [stats, setStats] = useState<{ seller: Counters; products: Record<string, Counters> }>({
+    seller: { storeViews: 0, productViews: 0, saves: 0, shares: 0, whatsappClicks: 0 },
+    products: {},
+  });
+
+  useEffect(() => {
+    if (!sellerId) return;
+    const sync = () => setStats({ seller: sellerCounters(sellerId), products: {} });
+    sync();
+    return onEngagementChange(sync);
+  }, [sellerId]);
+
+  return stats.seller;
+}
+
 function Dashboard() {
   useSellerSessionRefresh();
 
@@ -114,6 +140,7 @@ function Dashboard() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [profileSaving, setProfileSaving] = useState(false);
   const { data: sellerId } = useStoreData(getSession);
+  const counters = useSellerEngagement(sellerId);
 
   useEffect(() => {
     const sid = getSession();
@@ -244,6 +271,19 @@ function Dashboard() {
                   <Eye className="size-4" /> View profile
                 </Link>
               </Button>
+              <ShareDialog
+                title={seller.businessName}
+                url={storeUrl(seller.slug)}
+                shareText={`${seller.businessName} — ${seller.tagline} on NammaSpot`}
+                sellerId={seller.id}
+                instagram={seller.instagram}
+                fileName={`nammaspot-${seller.slug}`}
+                trigger={
+                  <Button variant="outline" size="sm" className="rounded-full">
+                    <Share2 className="size-4" /> Share My Store
+                  </Button>
+                }
+              />
               <Button size="sm" className="rounded-full" onClick={() => setSection("catalogue")}>
                 Add product
               </Button>
@@ -255,15 +295,37 @@ function Dashboard() {
               <>
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                   {[
-                    { label: "Profile Views", value: "1,284", delta: "+12%", icon: Eye },
-                    { label: "Catalogue Views", value: "864", delta: "+5%", icon: Boxes },
+                    {
+                      label: "Store Views",
+                      value: String(counters.storeViews),
+                      delta: "live",
+                      icon: Eye,
+                    },
+                    {
+                      label: "Product Views",
+                      value: String(counters.productViews),
+                      delta: "live",
+                      icon: Boxes,
+                    },
                     {
                       label: "New Enquiries",
                       value: String(enq.filter((e) => e.status === "new").length),
                       delta: "live",
                       icon: MessageSquare,
                     },
-                    { label: "Saved", value: "137", delta: "+18%", icon: Heart },
+                    { label: "Saves", value: String(counters.saves), delta: "live", icon: Heart },
+                    {
+                      label: "Shares",
+                      value: String(counters.shares),
+                      delta: "live",
+                      icon: Share2,
+                    },
+                    {
+                      label: "WhatsApp Clicks",
+                      value: String(counters.whatsappClicks),
+                      delta: "live",
+                      icon: MessageSquare,
+                    },
                   ].map((m) => (
                     <div key={m.label} className="card-soft p-4">
                       <div className="flex items-center justify-between gap-2">
@@ -473,6 +535,25 @@ function Dashboard() {
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
+                        <ShareDialog
+                          title={p.name}
+                          url={productUrl(p.id)}
+                          shareText={`${p.name} from ${seller.businessName} on NammaSpot`}
+                          productId={p.id}
+                          sellerId={seller.id}
+                          instagram={seller.instagram}
+                          fileName={`nammaspot-${p.id}`}
+                          trigger={
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-8"
+                              aria-label={`Share ${p.name}`}
+                            >
+                              <Share2 className="size-4" />
+                            </Button>
+                          }
+                        />
                         <Button
                           size="icon"
                           variant="ghost"
