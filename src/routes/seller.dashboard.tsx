@@ -63,12 +63,7 @@ import {
   setSellerImage,
   updateProduct,
 } from "@/lib/api";
-import {
-  onEngagementChange,
-  productCounters,
-  sellerCounters,
-  type Counters,
-} from "@/lib/engagement";
+import { onEngagementChange, sellerCounters, type Counters } from "@/lib/engagement";
 import { productUrl, storeUrl } from "@/lib/share";
 import { clearSession, getSession } from "@/lib/session";
 import { signOutSeller } from "@/lib/seller-auth";
@@ -116,19 +111,22 @@ const VIEWS_7D = [
 
 /** Live engagement counters for this seller (and its products). */
 function useSellerEngagement(sellerId: string | null | undefined) {
-  const [stats, setStats] = useState<{ seller: Counters; products: Record<string, Counters> }>({
-    seller: { storeViews: 0, productViews: 0, saves: 0, shares: 0, whatsappClicks: 0 },
-    products: {},
+  const [stats, setStats] = useState<Counters>({
+    storeViews: 0,
+    productViews: 0,
+    saves: 0,
+    shares: 0,
+    whatsappClicks: 0,
   });
 
   useEffect(() => {
     if (!sellerId) return;
-    const sync = () => setStats({ seller: sellerCounters(sellerId), products: {} });
+    const sync = () => setStats(sellerCounters(sellerId));
     sync();
     return onEngagementChange(sync);
   }, [sellerId]);
 
-  return stats.seller;
+  return stats;
 }
 
 function Dashboard() {
@@ -293,7 +291,7 @@ function Dashboard() {
           <div className="pt-6">
             {section === "overview" && (
               <>
-                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
                   {[
                     {
                       label: "Store Views",
