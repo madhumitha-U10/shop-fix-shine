@@ -46,7 +46,8 @@ export function ShareDialog({
 
   const qr = useMemo(() => (open && showQr && url ? qrDataUrl(url) : ""), [open, showQr, url]);
 
-  const counted = () => trackShare({ ...(sellerId ? { sellerId } : {}), ...(productId ? { productId } : {}) });
+  const counted = () =>
+    trackShare({ ...(sellerId ? { sellerId } : {}), ...(productId ? { productId } : {}) });
 
   const copy = async () => {
     const ok = await copyToClipboard(url);

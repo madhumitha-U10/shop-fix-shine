@@ -132,10 +132,10 @@ const RECENT_LIMIT = 24;
 export const recentlyViewed = (): RecentItem[] => read().recent;
 
 function pushRecent(s: EngagementState, type: RecentItem["type"], id: string) {
-  s.recent = [{ type, id, at: Date.now() }, ...s.recent.filter((r) => !(r.type === type && r.id === id))].slice(
-    0,
-    RECENT_LIMIT,
-  );
+  s.recent = [
+    { type, id, at: Date.now() },
+    ...s.recent.filter((r) => !(r.type === type && r.id === id)),
+  ].slice(0, RECENT_LIMIT);
 }
 
 export function clearRecentlyViewed() {

@@ -117,9 +117,7 @@ function ProductPage() {
                 <Button
                   asChild
                   className="rounded-full"
-                  onClick={() =>
-                    trackWhatsAppClick({ sellerId: seller.id, productId: product.id })
-                  }
+                  onClick={() => trackWhatsAppClick({ sellerId: seller.id, productId: product.id })}
                 >
                   <a
                     href={whatsAppChatUrl(seller.whatsapp, askMessage)}

@@ -119,7 +119,6 @@ function SellerProfile() {
   const story = storiesBySeller(seller.id)[0];
   const shopUrl = storeUrl(seller.slug);
 
-
   return (
     <SiteShell>
       <div className="relative border-b border-border bg-card">
@@ -171,7 +170,6 @@ function SellerProfile() {
                 }
               />
             </div>
-
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
@@ -273,7 +271,6 @@ function SellerProfile() {
                       }
                     />
                   </div>
-
                 </div>
               ))}
             </div>
