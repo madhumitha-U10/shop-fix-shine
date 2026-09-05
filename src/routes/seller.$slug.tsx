@@ -239,6 +239,41 @@ function SellerProfile() {
                       Enquire
                     </Button>
                   </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+                    <Button
+                      asChild
+                      size="sm"
+                      className="rounded-full"
+                      onClick={() => trackWhatsAppClick({ sellerId: seller.id, productId: p.id })}
+                    >
+                      <a
+                        href={whatsAppChatUrl(
+                          seller.whatsapp,
+                          `Hi ${seller.businessName}, I'm interested in "${p.name}" (${inr(p.price)}) on NammaSpot.`,
+                        )}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <MessageCircle className="size-4" /> Ask on WhatsApp
+                      </a>
+                    </Button>
+                    <SaveButton kind="product" id={p.id} sellerId={seller.id} size="sm" />
+                    <ShareDialog
+                      title={p.name}
+                      url={productUrl(p.id)}
+                      shareText={`${p.name} from ${seller.businessName} on NammaSpot`}
+                      productId={p.id}
+                      sellerId={seller.id}
+                      instagram={seller.instagram}
+                      fileName={`nammaspot-${p.id}`}
+                      trigger={
+                        <Button variant="outline" size="icon" aria-label={`Share ${p.name}`}>
+                          <Share2 className="size-4" />
+                        </Button>
+                      }
+                    />
+                  </div>
+
                 </div>
               ))}
             </div>
