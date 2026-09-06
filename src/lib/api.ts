@@ -47,6 +47,10 @@ interface Overlay {
   customerAvatars: Record<string, string>;
   /** sellerId -> uploaded profile photo (data URL). */
   sellerImages: Record<string, string>;
+  /** Products the seller removed — hidden even if the sheet still lists them. */
+  deletedProducts: string[];
+  /** Local edits to product details, keyed by productId. */
+  productEdits: Record<string, Partial<Product>>;
 }
 
 const emptyOverlay: Overlay = {
@@ -60,7 +64,10 @@ const emptyOverlay: Overlay = {
   productImages: {},
   customerAvatars: {},
   sellerImages: {},
+  deletedProducts: [],
+  productEdits: {},
 };
+
 
 function readOverlay(): Overlay {
   if (typeof window === "undefined") return emptyOverlay;
