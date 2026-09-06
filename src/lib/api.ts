@@ -175,7 +175,11 @@ function mirror(
 
 /* ---------------------------------- reads --------------------------------- */
 
-export function allSellers(): Seller[] {
+/**
+ * Every seller record we know about, including rejected ones. Only the
+ * rejection screens and the duplicate guard should use this.
+ */
+function everySellerRecord(): Seller[] {
   const o = readOverlay();
   const byId = new Map<string, Seller>();
   for (const s of [...remoteSnapshot().sellers, ...o.sellers]) {
@@ -189,25 +193,55 @@ export function allSellers(): Seller[] {
   return [...byId.values()];
 }
 
+/**
+ * Sellers visible anywhere in the app. Rejected applications are treated as
+ * deleted: they disappear from the admin console, public browsing, search and
+ * their own dashboard, and everything attached to them is hidden too.
+ */
+export function allSellers(): Seller[] {
+  return everySellerRecord().filter((s) => s.status !== "rejected");
+}
+
+/** Only for telling a rejected applicant why they can't get in. */
+export const rejectedSellerById = (sid: string): Seller | undefined =>
+  everySellerRecord().find((s) => s.id === sid && s.status === "rejected");
+
+/** Ids of sellers whose data must never surface. */
+function hiddenSellerIds(): Set<string> {
+  return new Set(everySellerRecord().filter((s) => s.status === "rejected").map((s) => s.id));
+}
+
 export function allProducts(): Product[] {
   const o = readOverlay();
-  return [...remoteSnapshot().products, ...o.products].map((p) => ({
-    ...p,
-    imageUrl: getImageUrl(o.productImages[p.id] ?? p.imageUrl) || undefined,
-  }));
+  const hidden = hiddenSellerIds();
+  const removed = new Set(o.deletedProducts);
+  return [...remoteSnapshot().products, ...o.products]
+    .filter((p) => !removed.has(p.id) && !hidden.has(p.sellerId))
+    .map((p) => ({
+      ...p,
+      ...(o.productEdits[p.id] ?? {}),
+      imageUrl: getImageUrl(o.productImages[p.id] ?? p.imageUrl) || undefined,
+    }));
 }
 
 export function allEnquiries(): Enquiry[] {
-  return [...readOverlay().enquiries, ...remoteSnapshot().enquiries];
+  const hidden = hiddenSellerIds();
+  return [...readOverlay().enquiries, ...remoteSnapshot().enquiries].filter(
+    (e) => !hidden.has(e.sellerId),
+  );
 }
 
 export function allReviews(): Review[] {
   const o = readOverlay();
-  return [...remoteSnapshot().reviews, ...o.reviews].map((r) => ({
-    ...r,
-    approved: o.reviewApprovals[r.id] ?? r.approved,
-  }));
+  const hidden = hiddenSellerIds();
+  return [...remoteSnapshot().reviews, ...o.reviews]
+    .filter((r) => !hidden.has(r.sellerId))
+    .map((r) => ({
+      ...r,
+      approved: o.reviewApprovals[r.id] ?? r.approved,
+    }));
 }
+
 
 export function allCustomers(): Customer[] {
   const o = readOverlay();
