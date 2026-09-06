@@ -596,24 +596,46 @@ export async function setReviewApproval(
   });
 }
 
-/** Update an existing product's details (name, price, unit, description, type). */
-export function updateProduct(
+/**
+ * Update an existing product's details. Applied locally straight away and
+ * persisted to the shared backend (the server re-checks that the signed-in
+ * seller owns this product).
+ */
+export async function updateProduct(
   productId: string,
   patch: Partial<Pick<Product, "name" | "price" | "unit" | "description" | "type">>,
-): void {
+): Promise<{ ok: boolean; error?: string }> {
+  const sellerId = allProducts().find((p) => p.id === productId)?.sellerId;
   mutate((o) => {
     const local = o.products.find((p) => p.id === productId);
     if (local) Object.assign(local, patch);
+    else o.productEdits[productId] = { ...(o.productEdits[productId] ?? {}), ...patch };
   });
+  if (!sellerId) return { ok: true };
+  const res = await sellerUpdateProduct({ data: { sellerId, productId, ...patch } }).catch(() => ({
+    ok: false,
+    error: "Saved on this device, but the shared listing could not be updated.",
+  }));
+  return res.ok ? { ok: true } : { ok: false, ...(res.error ? { error: res.error } : {}) };
 }
 
-/** Permanently remove a product from the seller's catalogue. */
-export function deleteProduct(productId: string): void {
+/** Remove a product from the seller's catalogue, everywhere. */
+export async function deleteProduct(productId: string): Promise<{ ok: boolean; error?: string }> {
+  const sellerId = allProducts().find((p) => p.id === productId)?.sellerId;
   mutate((o) => {
     o.products = o.products.filter((p) => p.id !== productId);
     delete o.productImages[productId];
+    delete o.productEdits[productId];
+    if (!o.deletedProducts.includes(productId)) o.deletedProducts.push(productId);
   });
+  if (!sellerId) return { ok: true };
+  const res = await sellerRetireProduct({ data: { sellerId, productId } }).catch(() => ({
+    ok: false,
+    error: "Removed on this device, but the shared listing could not be updated.",
+  }));
+  return res.ok ? { ok: true } : { ok: false, ...(res.error ? { error: res.error } : {}) };
 }
+
 
 /** Attach / change a catalogue photo for an existing product. */
 export function setProductImage(productId: string, url: string) {
