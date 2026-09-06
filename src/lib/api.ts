@@ -47,6 +47,10 @@ interface Overlay {
   customerAvatars: Record<string, string>;
   /** sellerId -> uploaded profile photo (data URL). */
   sellerImages: Record<string, string>;
+  /** Products the seller removed — hidden even if the sheet still lists them. */
+  deletedProducts: string[];
+  /** Local edits to product details, keyed by productId. */
+  productEdits: Record<string, Partial<Product>>;
 }
 
 const emptyOverlay: Overlay = {
@@ -60,7 +64,10 @@ const emptyOverlay: Overlay = {
   productImages: {},
   customerAvatars: {},
   sellerImages: {},
+  deletedProducts: [],
+  productEdits: {},
 };
+
 
 function readOverlay(): Overlay {
   if (typeof window === "undefined") return emptyOverlay;
@@ -168,7 +175,11 @@ function mirror(
 
 /* ---------------------------------- reads --------------------------------- */
 
-export function allSellers(): Seller[] {
+/**
+ * Every seller record we know about, including rejected ones. Only the
+ * rejection screens and the duplicate guard should use this.
+ */
+function everySellerRecord(): Seller[] {
   const o = readOverlay();
   const byId = new Map<string, Seller>();
   for (const s of [...remoteSnapshot().sellers, ...o.sellers]) {
@@ -182,25 +193,55 @@ export function allSellers(): Seller[] {
   return [...byId.values()];
 }
 
+/**
+ * Sellers visible anywhere in the app. Rejected applications are treated as
+ * deleted: they disappear from the admin console, public browsing, search and
+ * their own dashboard, and everything attached to them is hidden too.
+ */
+export function allSellers(): Seller[] {
+  return everySellerRecord().filter((s) => s.status !== "rejected");
+}
+
+/** Only for telling a rejected applicant why they can't get in. */
+export const rejectedSellerById = (sid: string): Seller | undefined =>
+  everySellerRecord().find((s) => s.id === sid && s.status === "rejected");
+
+/** Ids of sellers whose data must never surface. */
+function hiddenSellerIds(): Set<string> {
+  return new Set(everySellerRecord().filter((s) => s.status === "rejected").map((s) => s.id));
+}
+
 export function allProducts(): Product[] {
   const o = readOverlay();
-  return [...remoteSnapshot().products, ...o.products].map((p) => ({
-    ...p,
-    imageUrl: getImageUrl(o.productImages[p.id] ?? p.imageUrl) || undefined,
-  }));
+  const hidden = hiddenSellerIds();
+  const removed = new Set(o.deletedProducts);
+  return [...remoteSnapshot().products, ...o.products]
+    .filter((p) => !removed.has(p.id) && !hidden.has(p.sellerId))
+    .map((p) => ({
+      ...p,
+      ...(o.productEdits[p.id] ?? {}),
+      imageUrl: getImageUrl(o.productImages[p.id] ?? p.imageUrl) || undefined,
+    }));
 }
 
 export function allEnquiries(): Enquiry[] {
-  return [...readOverlay().enquiries, ...remoteSnapshot().enquiries];
+  const hidden = hiddenSellerIds();
+  return [...readOverlay().enquiries, ...remoteSnapshot().enquiries].filter(
+    (e) => !hidden.has(e.sellerId),
+  );
 }
 
 export function allReviews(): Review[] {
   const o = readOverlay();
-  return [...remoteSnapshot().reviews, ...o.reviews].map((r) => ({
-    ...r,
-    approved: o.reviewApprovals[r.id] ?? r.approved,
-  }));
+  const hidden = hiddenSellerIds();
+  return [...remoteSnapshot().reviews, ...o.reviews]
+    .filter((r) => !hidden.has(r.sellerId))
+    .map((r) => ({
+      ...r,
+      approved: o.reviewApprovals[r.id] ?? r.approved,
+    }));
 }
+
 
 export function allCustomers(): Customer[] {
   const o = readOverlay();
@@ -555,24 +596,46 @@ export async function setReviewApproval(
   });
 }
 
-/** Update an existing product's details (name, price, unit, description, type). */
-export function updateProduct(
+/**
+ * Update an existing product's details. Applied locally straight away and
+ * persisted to the shared backend (the server re-checks that the signed-in
+ * seller owns this product).
+ */
+export async function updateProduct(
   productId: string,
   patch: Partial<Pick<Product, "name" | "price" | "unit" | "description" | "type">>,
-): void {
+): Promise<{ ok: boolean; error?: string }> {
+  const sellerId = allProducts().find((p) => p.id === productId)?.sellerId;
   mutate((o) => {
     const local = o.products.find((p) => p.id === productId);
     if (local) Object.assign(local, patch);
+    else o.productEdits[productId] = { ...(o.productEdits[productId] ?? {}), ...patch };
   });
+  if (!sellerId) return { ok: true };
+  const res = await sellerUpdateProduct({ data: { sellerId, productId, ...patch } }).catch(() => ({
+    ok: false,
+    error: "Saved on this device, but the shared listing could not be updated.",
+  }));
+  return res.ok ? { ok: true } : { ok: false, ...(res.error ? { error: res.error } : {}) };
 }
 
-/** Permanently remove a product from the seller's catalogue. */
-export function deleteProduct(productId: string): void {
+/** Remove a product from the seller's catalogue, everywhere. */
+export async function deleteProduct(productId: string): Promise<{ ok: boolean; error?: string }> {
+  const sellerId = allProducts().find((p) => p.id === productId)?.sellerId;
   mutate((o) => {
     o.products = o.products.filter((p) => p.id !== productId);
     delete o.productImages[productId];
+    delete o.productEdits[productId];
+    if (!o.deletedProducts.includes(productId)) o.deletedProducts.push(productId);
   });
+  if (!sellerId) return { ok: true };
+  const res = await sellerRetireProduct({ data: { sellerId, productId } }).catch(() => ({
+    ok: false,
+    error: "Removed on this device, but the shared listing could not be updated.",
+  }));
+  return res.ok ? { ok: true } : { ok: false, ...(res.error ? { error: res.error } : {}) };
 }
+
 
 /** Attach / change a catalogue photo for an existing product. */
 export function setProductImage(productId: string, url: string) {
