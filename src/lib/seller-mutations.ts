@@ -67,6 +67,29 @@ export const sellerUpdateProfile = createServerFn({ method: "POST" })
     return postToSheet({ action: "update", table: "sellers", data: row });
   });
 
+/**
+ * Confirms the signed-in seller owns `productId`.
+ *
+ * Returns "ok" when the product belongs to them, "unknown" when the sheet has
+ * not seen the product yet (freshly created locally — nothing to update) and
+ * "denied" for everything else.
+ */
+async function ownsProduct(
+  sellerId: string,
+  productId: string,
+): Promise<"ok" | "unknown" | "denied"> {
+  const { ownsSeller } = await import("@/lib/seller-authz.server");
+  if (!(await ownsSeller(sellerId))) return "denied";
+
+  const { readTables } = await import("@/lib/sheets-cache.server");
+  const { rows } = await readTables(["products"]);
+  const match = (rows["products"] ?? []).find(
+    (r) => String(r["productId"] ?? r["id"] ?? "") === productId,
+  );
+  if (!match) return "unknown";
+  return String(match["sellerId"] ?? "") === sellerId ? "ok" : "denied";
+}
+
 /** Update a catalogue photo for a product the signed-in seller owns. */
 export const sellerUpdateProductImage = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
@@ -79,19 +102,9 @@ export const sellerUpdateProductImage = createServerFn({ method: "POST" })
       .parse(data),
   )
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
-    const { ownsSeller } = await import("@/lib/seller-authz.server");
-    if (!(await ownsSeller(data.sellerId))) return { ok: false, error: "Unauthorized" };
-
-    const { readTables } = await import("@/lib/sheets-cache.server");
-    const { rows } = await readTables(["products"]);
-    const match = (rows["products"] ?? []).find(
-      (r) => String(r["productId"] ?? r["id"] ?? "") === data.productId,
-    );
-    // Unknown to the sheet yet (just created locally) — nothing to update.
-    if (!match) return { ok: true };
-    if (String(match["sellerId"] ?? "") !== data.sellerId) {
-      return { ok: false, error: "Unauthorized" };
-    }
+    const owns = await ownsProduct(data.sellerId, data.productId);
+    if (owns === "denied") return { ok: false, error: "Unauthorized" };
+    if (owns === "unknown") return { ok: true };
 
     return postToSheet({
       action: "update",
@@ -99,3 +112,55 @@ export const sellerUpdateProductImage = createServerFn({ method: "POST" })
       data: { productId: data.productId, imageUrl: data.imageUrl },
     });
   });
+
+/** Edit the details of a product the signed-in seller owns. */
+export const sellerUpdateProduct = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    z
+      .object({
+        sellerId: z.string().min(1),
+        productId: z.string().min(1),
+        name: z.string().max(80).optional(),
+        price: z.number().nonnegative().max(10_000_000).optional(),
+        unit: z.string().max(30).optional(),
+        description: z.string().max(400).optional(),
+        type: z.enum(["product", "service"]).optional(),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+    const owns = await ownsProduct(data.sellerId, data.productId);
+    if (owns === "denied") return { ok: false, error: "Unauthorized" };
+    if (owns === "unknown") return { ok: true };
+
+    const row: Record<string, unknown> = { productId: data.productId };
+    if (data.name !== undefined) row["name"] = data.name;
+    if (data.price !== undefined) row["price"] = data.price;
+    if (data.unit !== undefined) row["unit"] = data.unit;
+    if (data.description !== undefined) row["description"] = data.description;
+    if (data.type !== undefined) row["type"] = data.type;
+
+    if (Object.keys(row).length === 1) return { ok: true };
+    return postToSheet({ action: "update", table: "products", data: row });
+  });
+
+/**
+ * Retire a product from the catalogue (sets `active` to false on the shared
+ * sheet). Sellers can only retire their own products.
+ */
+export const sellerRetireProduct = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    z.object({ sellerId: z.string().min(1), productId: z.string().min(1) }).parse(data),
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+    const owns = await ownsProduct(data.sellerId, data.productId);
+    if (owns === "denied") return { ok: false, error: "Unauthorized" };
+    if (owns === "unknown") return { ok: true };
+
+    return postToSheet({
+      action: "update",
+      table: "products",
+      data: { productId: data.productId, active: false },
+    });
+  });
+
